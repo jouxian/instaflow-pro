@@ -1,4 +1,3 @@
-```markdown
 # InstaFlow Pro
 
 A PowerShell-based desktop downloader for Instagram and YouTube with support for high-quality media downloads, accelerated transfers, and 4K video when available.
@@ -43,8 +42,8 @@ Depending on the requested operation, the following tools may be required:
 - PowerShell
 - `yt-dlp`
 - `FFmpeg`
-- `aria2c` — optional acceleration
-- `gallery-dl` — used for supported Instagram gallery and profile operations
+- `aria2c` - optional acceleration
+- `gallery-dl` - used for supported Instagram gallery and profile operations
 
 The installer can download or configure some required tools automatically.
 
@@ -52,12 +51,7 @@ The installer can download or configure some required tools automatically.
 
 1. Download or clone this repository.
 2. Extract the files to a normal folder if using a ZIP archive.
-3. Run:
-
-```text
-Install.bat
-```
-
+3. Run `Install.bat`.
 4. Wait for installation to complete.
 5. Open the **InstaFlow Pro** desktop shortcut.
 
@@ -67,10 +61,8 @@ The application files are installed under the current Windows user's local appli
 
 The project also includes:
 
-```text
-Open_InstaFlow.bat
-Open_InstaFlow.vbs
-```
+- `Open_InstaFlow.bat`
+- `Open_InstaFlow.vbs`
 
 These files can be used to launch InstaFlow directly.
 
@@ -88,37 +80,16 @@ The default download location is the current user's Windows `Downloads` folder.
 
 ## Accelerated Download Workflow
 
-For supported YouTube content:
+For supported YouTube content, InstaFlow follows this process:
 
-```text
-URL
- ?
-yt-dlp
- ?
-Format detection
- ?
-Best available video + audio
- ?
-aria2c accelerated download
- ?
-FFmpeg merge
- ?
-Final media file
-```
+1. Receive the media URL.
+2. Use `yt-dlp` to detect the available formats.
+3. Select the best available video and audio streams.
+4. Attempt an accelerated download using `aria2c`.
+5. Use `FFmpeg` to merge video and audio when necessary.
+6. Save the final media file.
 
-If accelerated downloading fails:
-
-```text
-aria2c failure
- ?
-Automatic fallback
- ?
-Native yt-dlp downloader
- ?
-FFmpeg merge
- ?
-Final media file
-```
+If accelerated downloading with `aria2c` fails, InstaFlow automatically falls back to the native `yt-dlp` downloader and continues the download without requiring the user to restart the process.
 
 ## Browser Cookies
 
@@ -164,49 +135,46 @@ This project is not an IDM integration.
 
 ## Project Structure
 
-```text
-instaflow-pro/
-+-- .gitignore
-+-- GUIDE_FA.txt
-+-- InstaFlow.ico
-+-- InstaFlow.ps1
-+-- Install.bat
-+-- Install.ps1
-+-- Merge_IDM.ps1
-+-- Open_InstaFlow.bat
-+-- Open_InstaFlow.vbs
-+-- README.md
-+-- Update_Tools.bat
-+-- Worker.ps1
-```
+- `.gitignore`
+- `GUIDE_FA.txt`
+- `InstaFlow.ico`
+- `InstaFlow.ps1`
+- `Install.bat`
+- `Install.ps1`
+- `Merge_IDM.ps1`
+- `Open_InstaFlow.bat`
+- `Open_InstaFlow.vbs`
+- `README.md`
+- `Update_Tools.bat`
+- `Worker.ps1`
 
-### Main Files
+## Main Files
 
-`InstaFlow.ps1`
+### `InstaFlow.ps1`
 
 Main graphical user interface and application controller.
 
-`Worker.ps1`
+### `Worker.ps1`
 
 Handles media scanning, metadata processing, downloads, format selection, and external tool integration.
 
-`Install.ps1`
+### `Install.ps1`
 
 Installs InstaFlow and prepares required or optional tools.
 
-`Install.bat`
+### `Install.bat`
 
 Simple Windows installer launcher.
 
-`Update_Tools.bat`
+### `Update_Tools.bat`
 
 Used to update or install supporting tools.
 
-`Merge_IDM.ps1`
+### `Merge_IDM.ps1`
 
 Utility for manually merging separate video and audio downloads when needed.
 
-`GUIDE_FA.txt`
+### `GUIDE_FA.txt`
 
 Additional Persian-language usage instructions.
 
@@ -233,19 +201,9 @@ Temporary signed media URLs should not be treated as permanent download links.
 
 ## Updating the Project
 
-After updating the source files, existing installations may need to run:
+After updating the source files, existing installations may need to run `Install.bat` again so the installed copy receives the latest project files.
 
-```text
-Install.bat
-```
-
-again so the installed copy receives the latest project files.
-
-Supporting tools can also be updated with:
-
-```text
-Update_Tools.bat
-```
+Supporting tools can also be updated with `Update_Tools.bat`.
 
 ## Disclaimer
 
@@ -254,4 +212,3 @@ Use this software only to access and download content that you are authorized to
 Users are responsible for complying with applicable laws, copyright rules, platform terms, and content-owner rights.
 
 YouTube, Instagram, IDM, yt-dlp, aria2c, FFmpeg, and gallery-dl are separate projects or services and are not affiliated with this repository.
-```

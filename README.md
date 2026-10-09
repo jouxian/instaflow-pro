@@ -1,8 +1,18 @@
-﻿# InstaFlow Pro
+# InstaFlow Pro
 
 A PowerShell-based desktop downloader for Instagram and YouTube with support for high-quality media downloads, accelerated transfers, and 4K video when available.
 
 ![InstaFlow Pro v2.6](instaflow-pro-v2.6.png)
+
+## Quick Start
+
+1. Download the ready-to-use Windows package: [InstaFlow-Pro-v2.6.zip](https://github.com/jouxian/instaflow-pro/releases/download/v2.6/InstaFlow-Pro-v2.6.zip)
+2. Extract the ZIP file to a normal folder.
+3. Run `Install.bat`.
+4. Open **InstaFlow Pro** from the desktop shortcut.
+5. On first launch, required runtime tools are downloaded automatically.
+
+No `winget` installation is required.
 
 ## Features
 

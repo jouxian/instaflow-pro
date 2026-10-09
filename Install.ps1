@@ -1,9 +1,9 @@
-# InstaFlow Pro v2.6 setup. Installs files under the current user's local app directory.
+﻿# InstaFlow Pro v2.6 setup. Installs files under the current user's local app directory.
 $ErrorActionPreference='Stop'
 $dest=Join-Path $env:LOCALAPPDATA 'InstaFlow'
 try {
     New-Item -ItemType Directory -Force -Path $dest | Out-Null
-    $files=@('InstaFlow.ps1','Worker.ps1','Ensure_Tools.ps1','InstaFlow.ico','Open_InstaFlow.vbs','Open_InstaFlow.bat','README.md','GUIDE_FA.txt','Update_Tools.bat','Merge_IDM.ps1')
+    $files=@('InstaFlow.ps1','Worker.ps1','Ensure_Tools.ps1','InstaFlow.ico','Open_InstaFlow.vbs','Open_InstaFlow.bat','README.md','GUIDE.md','Update_Tools.bat','Merge_IDM.ps1')
     foreach($name in $files) {
         $source=Join-Path $PSScriptRoot $name
         if(Test-Path -LiteralPath $source) { Copy-Item -LiteralPath $source -Destination (Join-Path $dest $name) -Force }
@@ -45,3 +45,4 @@ try {
     Read-Host 'Press Enter to close'
     exit 1
 }
+

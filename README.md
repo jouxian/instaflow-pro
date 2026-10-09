@@ -1,4 +1,4 @@
-# InstaFlow Pro
+﻿# InstaFlow Pro
 
 A PowerShell-based desktop downloader for Instagram and YouTube with support for high-quality media downloads, accelerated transfers, and 4K video when available.
 
@@ -136,7 +136,7 @@ This project is not an IDM integration.
 ## Project Structure
 
 - `.gitignore`
-- `GUIDE_FA.txt`
+- `GUIDE.md`
 - `InstaFlow.ico`
 - `InstaFlow.ps1`
 - `Install.bat`
@@ -174,7 +174,7 @@ Used to update or install supporting tools.
 
 Utility for manually merging separate video and audio downloads when needed.
 
-### `GUIDE_FA.txt`
+### `GUIDE.md`
 
 Additional Persian-language usage instructions.
 

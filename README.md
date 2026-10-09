@@ -37,17 +37,18 @@ Multi-connection downloading may improve download speed, but faster speeds are n
 
 ## Requirements
 
-InstaFlow Pro is designed for Windows.
+InstaFlow Pro is designed for Windows and uses Windows PowerShell 5.1.
 
-Depending on the requested operation, the following tools may be required:
+Runtime tools are prepared automatically when required:
 
-- PowerShell
-- `yt-dlp`
-- `FFmpeg`
-- `aria2c` - optional acceleration
-- `gallery-dl` - used for supported Instagram gallery and profile operations
+- `yt-dlp` - YouTube media detection and downloading
+- `Deno` - JavaScript runtime used by modern `yt-dlp` YouTube extraction
+- `FFmpeg` - video and audio merging
+- `ffprobe` - media inspection support
+- `aria2c` - optional multi-connection download acceleration
+- `gallery-dl` - supported Instagram gallery and profile operations
 
-The installer can download or configure some required tools automatically.
+These tools are downloaded automatically and stored locally by InstaFlow Pro. `winget` is not required.
 
 ## Installation
 
@@ -95,11 +96,13 @@ If accelerated downloading with `aria2c` fails, InstaFlow automatically falls ba
 
 ## Browser Cookies
 
-InstaFlow can use browser cookies through `yt-dlp` and `gallery-dl` when required for supported content.
+For public YouTube content, InstaFlow first attempts scanning and downloading without browser cookies.
 
-Cookies are read from the selected browser at runtime.
+If public access fails because authentication or account access is required, InstaFlow can retry using cookies from the browser selected in the application.
 
-Browser cookies, passwords, authentication tokens, and account credentials are not stored in this repository.
+`gallery-dl` may also use browser authentication when required for supported Instagram content.
+
+Cookies are read from the selected browser at runtime. Browser cookies, passwords, authentication tokens, and account credentials are not stored in this repository.
 
 ## Instagram Notes
 
@@ -139,6 +142,7 @@ This project is not an IDM integration.
 
 - `.gitignore`
 - `GUIDE.md`
+- `Ensure_Tools.ps1`
 - `InstaFlow.ico`
 - `InstaFlow.ps1`
 - `Install.bat`
@@ -151,6 +155,10 @@ This project is not an IDM integration.
 - `Worker.ps1`
 
 ## Main Files
+
+### `Ensure_Tools.ps1`
+
+Automatically downloads, prepares, and maintains the runtime tools required by InstaFlow Pro.
 
 ### `InstaFlow.ps1`
 
@@ -178,7 +186,7 @@ Utility for manually merging separate video and audio downloads when needed.
 
 ### `GUIDE.md`
 
-Additional Persian-language usage instructions.
+Additional English quick-start and usage instructions.
 
 ## Temporary Files
 
@@ -214,4 +222,3 @@ Use this software only to access and download content that you are authorized to
 Users are responsible for complying with applicable laws, copyright rules, platform terms, and content-owner rights.
 
 YouTube, Instagram, IDM, yt-dlp, aria2c, FFmpeg, and gallery-dl are separate projects or services and are not affiliated with this repository.
-

@@ -2,6 +2,8 @@
 
 A PowerShell-based desktop downloader for Instagram and YouTube with support for high-quality media downloads, accelerated transfers, and 4K video when available.
 
+![InstaFlow Pro v2.6](instaflow-pro-v2.6.png)
+
 ## Features
 
 - YouTube video and audio downloads
@@ -212,3 +214,4 @@ Use this software only to access and download content that you are authorized to
 Users are responsible for complying with applicable laws, copyright rules, platform terms, and content-owner rights.
 
 YouTube, Instagram, IDM, yt-dlp, aria2c, FFmpeg, and gallery-dl are separate projects or services and are not affiliated with this repository.
+

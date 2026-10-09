@@ -18,16 +18,18 @@ function Result([object]$data) {
     $data | ConvertTo-Json -Depth 18 -Compress | Set-Content -LiteralPath $resultFile -Encoding UTF8
 }
 function Fail([string]$message) {
-    State 'خطا' 0
+    State 'Error' 0
     Result @{ ok=$false; message=$message; items=@() }
     exit 1
 }
+$localTools = Join-Path $PSScriptRoot 'tools'
 try {
-    $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')
-} catch {}
+    $env:Path = $localTools + ';' + [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')
+} catch { $env:Path = $localTools + ';' + $env:Path }
 function Tool([string]$name) {
-    $local = Join-Path $PSScriptRoot $name
-    if (Test-Path -LiteralPath $local) { return $local }
+    foreach($local in @((Join-Path $PSScriptRoot $name),(Join-Path $localTools $name))) {
+        if (Test-Path -LiteralPath $local) { return $local }
+    }
     $command = Get-Command $name -ErrorAction SilentlyContinue
     if ($command) { return $command.Source }
     return $null
@@ -104,9 +106,21 @@ function DirectFormatsFromYt([string]$page,[string]$yt,[string]$quality) {
     if($audioOnly){$selector='ba[ext=m4a]/ba'}
     elseif($quality -match '^(2160|1440|1080|720)$'){$selector='bv[height<='+$quality+']+ba/b[height<='+$quality+']'}
     else{$selector='bv+ba/b'}
-    $args=@('--cookies-from-browser',([string]$job.browser),'--no-playlist','--no-warnings','-f',$selector,'--dump-single-json','--',$page)
+
+    # Public media should work without any browser login.
+    # Browser cookies are used only as a fallback for content that actually requires them.
+    $baseArgs=@('--force-ipv4','--no-playlist','--no-warnings','--socket-timeout','15','--retries','1','--extractor-retries','1','-f',$selector,'--dump-single-json','--',$page)
     $script:timedOut=$false
-    $code=RunBounded $yt $args $json $err 100
+    $code=RunBounded $yt $baseArgs $json $err 45
+
+    if($code -ne 0 -and [string]$job.browser -in @('firefox','chrome','edge')){
+        Remove-Item -LiteralPath $json -Force -ErrorAction SilentlyContinue
+        ('Public access failed; retrying with '+[string]$job.browser+' browser cookies.') | Out-File -LiteralPath $err -Append -Encoding UTF8
+        $cookieArgs=@('--cookies-from-browser',([string]$job.browser)) + $baseArgs
+        $script:timedOut=$false
+        $code=RunBounded $yt $cookieArgs $json $err 45
+    }
+
     if($code -ne 0){Remove-Item -LiteralPath $json -Force -ErrorAction SilentlyContinue;return @()}
     try {
         $meta=Get-Content -LiteralPath $json -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
@@ -115,7 +129,6 @@ function DirectFormatsFromYt([string]$page,[string]$yt,[string]$quality) {
         foreach($fmt in $formats){
             $u=[string]$fmt.url
             $protocol=[string]$fmt.protocol
-            # IDMan.exe wants a direct HTTP(S) media resource, not HLS/DASH manifests.
             if($u -notmatch '^https?://' -or $protocol -match 'm3u8|dash|rtmp|ism|f4m' -or $u -match '\.(?:m3u8|mpd)(?:\?|$)'){continue}
             $v=[string]$fmt.vcodec
             $a=[string]$fmt.acodec
@@ -127,7 +140,6 @@ function DirectFormatsFromYt([string]$page,[string]$yt,[string]$quality) {
         return $files.ToArray()
     } catch {return @()}
     finally {
-        # Do not retain signed googlevideo links; they may contain IP-linked tokens.
         Remove-Item -LiteralPath $json -Force -ErrorAction SilentlyContinue
     }
 }
@@ -156,7 +168,7 @@ function GalleryItems([string]$url, [string]$gallery) {
     if($url -match '/avatar/?(?:[?]|$)') {$args+=@('-o','extractor.instagram.user-strategy=web,search')}
     $args+=@('--',$url)
     $scanCode=RunBounded $gallery $args $out $err $limit
-    if($scanCode -eq 124){$script:scanFailure='پاسخ اینستاگرام بیش از '+$limit+' ثانیه طول کشید. احتمالاً محدودیت موقت یا خطای 429 وجود دارد؛ بعداً دوباره امتحان کن.';return @()}
+    if($scanCode -eq 124){$script:scanFailure='Instagram response took more than '+$limit+' seconds. A temporary rate limit or HTTP 429 may be active. Try again later.';return @()}
 
     $raw = Get-Content -LiteralPath $out -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
     $nodes=New-Object System.Collections.ArrayList
@@ -184,7 +196,7 @@ function GalleryItems([string]$url, [string]$gallery) {
         $thumb=[string](Pick $m @('thumbnail','thumbnail_url','display_url','display_src','preview_url','image_url','cover_url'))
         if (-not $thumb -and -not $isVideo) { $thumb=$remote }
         if (-not $thumb -and $m.image_versions2 -and $m.image_versions2.candidates) { $thumb=[string]$m.image_versions2.candidates[0].url }
-        $kind=if ($isVideo) {'ویدیو'} else {'عکس'}
+        $kind=if ($isVideo) {'Video'} else {'Image'}
         [void]$list.Add(@{ index=$index; kind=$kind; title=($kind+' '+$index); thumb=$thumb; url=$remote; selectIndex=$index; downloadUrl=$url; engine='gallery' })
     }
     return $list.ToArray()
@@ -192,8 +204,24 @@ function GalleryItems([string]$url, [string]$gallery) {
 function YtdlpItems([string]$url, [string]$yt) {
     $out = Join-Path $work 'yt.json'
     $err = Join-Path $work 'yt.err'
-    $scanCode=RunBounded $yt @('--cookies-from-browser',([string]$job.browser),'--flat-playlist','--playlist-end','60','--dump-single-json','--no-warnings','--',$url) $out $err 95
-    if($scanCode -eq 124){$script:scanFailure='پاسخ یوتیوب خیلی طول کشید. اتصال یا محدودیت حساب را بررسی کن.';return @()}
+
+    # First try public access with no browser cookies.
+    $baseArgs=@('--force-ipv4','--flat-playlist','--playlist-end','60','--dump-single-json','--no-warnings','--socket-timeout','15','--retries','1','--extractor-retries','1','--',$url)
+    $script:timedOut=$false
+    $scanCode=RunBounded $yt $baseArgs $out $err 45
+
+    # Retry with browser cookies only if public access fails.
+    if($scanCode -ne 0 -and [string]$job.browser -in @('firefox','chrome','edge')){
+        Remove-Item -LiteralPath $out -Force -ErrorAction SilentlyContinue
+        ('Public access failed; retrying with '+[string]$job.browser+' browser cookies.') | Out-File -LiteralPath $err -Append -Encoding UTF8
+        State ('Public access failed. Retrying with '+[string]$job.browser+' cookies...') 32
+        $cookieArgs=@('--cookies-from-browser',([string]$job.browser)) + $baseArgs
+        $script:timedOut=$false
+        $scanCode=RunBounded $yt $cookieArgs $out $err 45
+    }
+
+    if($scanCode -eq 124){$script:scanFailure='The YouTube request timed out. Public access was attempted first; browser cookies were used only as a fallback.';return @()}
+    if($scanCode -ne 0){return @()}
 
     $data = $null
     try { $data = Get-Content -LiteralPath $out -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop } catch { return @() }
@@ -216,9 +244,9 @@ function YtdlpItems([string]$url, [string]$yt) {
         }
         if (-not $thumb -and $isYouTube -and $id) { $thumb='https://i.ytimg.com/vi/'+$id+'/hqdefault.jpg' }
         $title=[string](Pick $e @('title','fulltitle','description'))
-        if (-not $title) { $title='ویدیو '+$number }
-        $kind='ویدیو'
-        if ([string](Pick $e @('ext')) -match '^(jpg|png|webp)$') { $kind='عکس' }
+        if (-not $title) { $title='Video '+$number }
+        $kind='Video'
+        if ([string](Pick $e @('ext')) -match '^(jpg|png|webp)$') { $kind='Image' }
         [void]$items.Add(@{index=$number; kind=$kind; title=$title; thumb=$thumb; url=$vid; downloadUrl=$url; selectIndex=$number; engine='yt' })
     }
     return $items.ToArray()
@@ -230,7 +258,7 @@ function ReadLastError([string]$fallback) {
             $tail = @(Get-Content -LiteralPath $file -Tail 10 -ErrorAction SilentlyContinue | Where-Object { $_ -match 'error|ERROR|429|403|private|failed|not found' })
             if ($tail.Count -gt 0) {
                 $message=([string]$tail[-1]).Trim()
-                if($message -match '429'){return 'اینستاگرام درخواست‌های دریافت عکس پروفایل را موقتاً محدود کرده (429). کمی بعد دوباره امتحان کن؛ تکرار سریع کمکی نمی‌کند.'}
+                if($message -match '429'){return 'Instagram is temporarily rate-limiting profile picture requests (HTTP 429). Wait a while before trying again.'}
                 return $message
             }
         }
@@ -242,46 +270,46 @@ try {
     $yt=Tool 'yt-dlp.exe'
     $gallery=Tool 'gallery-dl.exe'
     if ([string]$job.mode -eq 'scan') {
-        State 'در حال بررسی لینک و ساخت فهرست...' 8
+        State 'Scanning the link and building the media list...' 8
         $isIG = $url -match '^https?://(?:www\.)?instagram\.com/'
         $isProfile = $isIG -and $url -match '^https?://(?:www\.)?instagram\.com/([A-Za-z0-9._]+)/?(?:\?.*)?$' -and $Matches[1] -notin @('p','reel','reels','stories','explore','direct','accounts')
         if ($isProfile) {
-            if (-not $gallery) { Fail 'برای عکس پروفایل، gallery-dl لازم است؛ فایل Install.bat را دوباره اجرا کنید.' }
+            if (-not $gallery) { Fail 'gallery-dl is required for profile pictures. Run Install.bat again.' }
             $user = $Matches[1]
-            State 'در حال یافتن عکس پروفایل...' 18
+            State 'Finding the profile picture...' 18
             $items = @(GalleryItems ('https://www.instagram.com/'+$user+'/avatar/') $gallery)
-            if ($items.Count -eq 0) { Fail (ReadLastError 'عکس پروفایل دریافت نشد؛ ممکن است اینستاگرام دسترسی را محدود کرده باشد.') }
-            Result @{ok=$true; items=$items; source='profile'; message='عکس پروفایل آماده انتخاب است.'}
+            if ($items.Count -eq 0) { Fail (ReadLastError 'The profile picture could not be retrieved. Instagram may be restricting access.') }
+            Result @{ok=$true; items=$items; source='profile'; message='The profile picture is ready to select.'}
             exit 0
         }
         if ($isIG -and $gallery -and $url -notmatch '/(?:stories|reel)/') {
             $items=@(GalleryItems $url $gallery)
             if ($items.Count -gt 0) {
-                if ($items.Count -eq 1 -and $items[0].kind -eq 'ویدیو' -and $url -match '/p/') {
+                if ($items.Count -eq 1 -and $items[0].kind -eq 'Video' -and $url -match '/p/') {
                     # yt-dlp generally merges video/audio better for standalone clips.
                     $items[0].engine='yt'
                     $items[0].url=$url
                 }
-                Result @{ok=$true; items=$items; source='instagram'; message=('تعداد '+$items.Count+' عکس/ویدیو پیدا شد.')}
+                Result @{ok=$true; items=$items; source='instagram'; message=('Found '+$items.Count+' images/videos.')}
                 exit 0
             }
         }
-        if (-not $yt) { Fail 'yt-dlp پیدا نشد؛ آن را با winget نصب کنید.' }
-        State 'در حال خواندن اطلاعات ویدیو...' 40
+        if (-not $yt) { Fail 'yt-dlp was not found. Run Install.bat or place yt-dlp.exe next to Worker.ps1.' }
+        State 'Reading video information...' 40
         $items=@(YtdlpItems $url $yt)
-        if ($items.Count -lt 1) { Fail (ReadLastError 'هیچ رسانه‌ای پیدا نشد؛ ورود به فایرفاکس یا دسترسی لینک را بررسی کنید.') }
-        $note=('تعداد '+$items.Count+' مورد پیدا شد.')
+        if ($items.Count -lt 1) { Fail (ReadLastError 'No media was found. Public access was tried first; browser cookies are only a fallback for restricted content.') }
+        $note=('Found '+$items.Count+' items.')
         if($url -match '(youtube\.com|youtu\.be)' -and -not (Tool 'deno.exe')) {
-            $note+=' برای دسترسی کامل‌تر به کیفیت‌های یوتیوب، Update_Tools.bat را اجرا کن تا Deno نصب شود.'
+            $note+=' For broader access to YouTube formats, run Update_Tools.bat to install Deno.'
         }
         Result @{ok=$true; items=$items; source='video'; message=$note}
         exit 0
     }
     if ([string]$job.mode -eq 'idm') {
         $idm=IDMPath
-        if(-not $idm){Fail 'برنامه IDM (فایل IDMan.exe) پیدا نشد. لطفاً IDM را نصب کن.'}
+        if(-not $idm){Fail 'IDM (IDMan.exe) was not found. Install IDM first.'}
         $selected=@($job.items)
-        if($selected.Count -eq 0){Fail 'هیچ فایلی انتخاب نشده است.'}
+        if($selected.Count -eq 0){Fail 'No files are selected.'}
         $destination=[string]$job.output
         if(-not (Test-Path -LiteralPath $destination)){New-Item -Path $destination -ItemType Directory -Force|Out-Null}
         $sent=0
@@ -290,26 +318,26 @@ try {
         $counter=0
         foreach($item in $selected){
             $counter++
-            State ('در حال استخراج لینک مستقیم، مورد '+$counter+' از '+$selected.Count) ([int](5+85*$counter/[Math]::Max(1,$selected.Count)))
+            State ('Extracting direct media URL, item '+$counter+' of '+$selected.Count) ([int](5+85*$counter/[Math]::Max(1,$selected.Count)))
             $streams=@()
             if([string]$item.engine -eq 'gallery' -and [string]$item.url -match '^https?://') {
                 $address=[string]$item.url
                 $extension='mp4'
                 if(([Uri]$address).AbsolutePath -match '\.(jpg|jpeg|png|webp|gif|mp4|mov|m4v)$'){$extension=$Matches[1]}
-                elseif([string]$item.kind -eq 'عکس'){$extension='jpg'}
+                elseif([string]$item.kind -eq 'Image'){$extension='jpg'}
                 $streams=@([pscustomobject]@{url=$address;role='combined';ext=$extension})
             } elseif ([string]$item.engine -eq 'yt') {
-                if(-not $yt){[void]$errors.Add('yt-dlp پیدا نشد.');continue}
+                if(-not $yt){[void]$errors.Add('yt-dlp was not found.');continue}
                 $streams=@(DirectFormatsFromYt ([string]$item.url) $yt ([string]$job.quality))
             }
             if($streams.Count -eq 0){
-                [void]$errors.Add('مورد '+$counter+': لینک مستقیم رسانه پیدا نشد. برای HLS/DASH یا لینک‌های محدود از دانلود داخلی استفاده کن.')
+                [void]$errors.Add('Item '+$counter+': no direct media URL was found. Use the built-in downloader for HLS/DASH or restricted links.')
                 continue
             }
             # Video-only + audio-only streams are two DISTINCT IDM downloads.
             $separate=($streams.Count -eq 2 -and @($streams | Where-Object {$_.role -eq 'video'}).Count -eq 1 -and @($streams | Where-Object {$_.role -eq 'audio'}).Count -eq 1)
             if($streams.Count -gt 1 -and -not $separate){
-                [void]$errors.Add('مورد '+$counter+': ترکیب فایل‌های این منبع پشتیبانی نمی‌شود.')
+                [void]$errors.Add('Item '+$counter+': this source stream combination is not supported.')
                 continue
             }
             $folder=$destination
@@ -327,7 +355,7 @@ try {
                     SubmitIDM $idm ([string]$stream.url) $folder $file
                     $sent++
                     $submitted++
-                } catch { [void]$errors.Add('IDM لینک '+$counter+' ('+$stream.role+') را نپذیرفت: '+$_.Exception.Message) }
+                } catch { [void]$errors.Add('IDM did not accept link '+$counter+' ('+$stream.role+'): '+$_.Exception.Message) }
             }
             if($separate -and $submitted -eq 2){
                 PrepareMergeShortcut $folder
@@ -335,19 +363,19 @@ try {
             }
         }
         if($sent -gt 0){
-            State 'لینک‌های مستقیم به IDM فرستاده شدند.' 100
-            $message='تعداد '+$sent+' لینک مستقیم به IDM تحویل داده شد؛ وضعیت دانلود را در IDM بررسی کن.'
-            if($mergeTasks -gt 0){$message+=' برای '+$mergeTasks+' ویدیو، تصویر و صدا جدا فرستاده شدند. پس از پایان هر دو دانلود، Merge_IDM.cmd داخل پوشه همان ویدیو را اجرا کن تا MKV صدادار ساخته شود.'}
-            if([string]$job.quality -eq 'audio_mp3'){$message+=' توجه: IDM فرمت صوتی اصلی را می‌گیرد؛ تبدیل مستقیم به MP3 انجام نمی‌دهد.'}
-            if($errors.Count -gt 0){$message+=' مشکلات: '+($errors -join ' | ')}
+            State 'Direct media links were sent to IDM.' 100
+            $message=$sent+' direct media links were sent to IDM. Check the download status in IDM.'
+            if($mergeTasks -gt 0){$message+=' For '+$mergeTasks+' videos, video and audio were sent separately. After both downloads finish, run Merge_IDM.cmd inside each video folder to create a merged MKV.'}
+            if([string]$job.quality -eq 'audio_mp3'){$message+=' Note: IDM downloads the original audio format and does not convert it directly to MP3.'}
+            if($errors.Count -gt 0){$message+=' Issues: '+($errors -join ' | ')}
             Result @{ok=$true;count=$sent;mergeTasks=$mergeTasks;message=$message;items=@()}
             exit 0
         }
-        Fail ('هیچ لینک مستقیمی ارسال نشد. '+($errors -join ' | '))
+        Fail ('No direct media links were sent. '+($errors -join ' | '))
     }
     if ([string]$job.mode -eq 'download') {
         $items=@($job.items)
-        if ($items.Count -eq 0) { Fail 'هیچ موردی انتخاب نشده است.' }
+        if ($items.Count -eq 0) { Fail 'No items are selected.' }
         $target=[string]$job.output
         if (-not (Test-Path -LiteralPath $target)) { New-Item -ItemType Directory -Force -Path $target | Out-Null }
         $quality=[string]$job.quality
@@ -362,15 +390,15 @@ try {
         $okCount=0
         $failures=New-Object System.Collections.ArrayList
         # For Instagram galleries, download selected indices with a single gallery-dl invocation.
-        $galleryEntries=@($items | Where-Object { $_.engine -eq 'gallery' -and (-not $audioOnly -or $_.kind -eq 'ویدیو') })
-        $skippedImages=@($items | Where-Object {$audioOnly -and $_.kind -eq 'عکس'}).Count
-        if($skippedImages -gt 0){[void]$failures.Add('در حالت فقط صدا، '+$skippedImages+' تصویر نادیده گرفته شد.')}
+        $galleryEntries=@($items | Where-Object { $_.engine -eq 'gallery' -and (-not $audioOnly -or $_.kind -eq 'Video') })
+        $skippedImages=@($items | Where-Object {$audioOnly -and $_.kind -eq 'Image'}).Count
+        if($skippedImages -gt 0){[void]$failures.Add('In audio-only mode, '+$skippedImages+' images were skipped.')}
 
         if ($galleryEntries.Count -gt 0) {
-            if (-not $gallery) { Fail 'gallery-dl پیدا نشد؛ نصب را تکرار کنید.' }
+            if (-not $gallery) { Fail 'gallery-dl was not found. Run the installation again.' }
             $ids = @($galleryEntries | ForEach-Object { [int]$_.selectIndex } | Sort-Object -Unique)
             $range = $ids -join ','
-            State ('در حال دریافت '+$galleryEntries.Count+' مورد اینستاگرام...') 12
+            State ('Downloading '+$galleryEntries.Count+' Instagram items...') 12
             $galleryUrl=[string]$galleryEntries[0].downloadUrl
             $galleryTarget=$target
             if($audioOnly){$galleryTarget=Join-Path $work 'GalleryAudio';New-Item -ItemType Directory -Force -Path $galleryTarget|Out-Null}
@@ -382,10 +410,10 @@ try {
             if($galleryCode -eq 0 -and -not $audioOnly){$okCount += $galleryEntries.Count}
             elseif($galleryCode -eq 0 -and $audioOnly){
                 $ff=Tool 'ffmpeg.exe'
-                if(-not $ff){[void]$failures.Add('برای استخراج صدا از گالری FFmpeg لازم است.')}
+                if(-not $ff){[void]$failures.Add('FFmpeg is required to extract audio from gallery videos.')}
                 else {
                     $videos=@(Get-ChildItem -LiteralPath $galleryTarget -File -Recurse -ErrorAction SilentlyContinue | Where-Object {$_.Extension.ToLower() -in @('.mp4','.mov','.webm','.mkv','.m4v')})
-                    if($videos.Count -eq 0){[void]$failures.Add('هیچ فایل ویدیویی برای استخراج صدا پیدا نشد.')}
+                    if($videos.Count -eq 0){[void]$failures.Add('No video files were found for audio extraction.')}
                     $audioNum=0
                     foreach($video in $videos){
                         $audioNum++
@@ -396,21 +424,21 @@ try {
                         $ffArgs+=@($outAudio)
                         & $ff @ffArgs 2>&1 | Out-File -LiteralPath $log -Encoding UTF8 -Append
                         if($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $outAudio)){$okCount++}
-                        else{[void]$failures.Add('صدای ویدیوی '+$audioNum+' استخراج نشد؛ احتمالاً صدا ندارد.')}
+                        else{[void]$failures.Add('Audio from video '+$audioNum+' could not be extracted. The video may not contain audio.')}
                     }
                 }
             }
-            else { [void]$failures.Add('بعضی رسانه‌های اینستاگرام دانلود نشدند (کد '+$galleryCode+').') }
+            else { [void]$failures.Add('Some Instagram media could not be downloaded (code '+$galleryCode+').') }
         }
         $ytEntries=@($items | Where-Object { $_.engine -eq 'yt' })
         $num=0
         foreach ($item in $ytEntries) {
             $num++
-            if (-not $yt) { Fail 'yt-dlp نصب نشده است.' }
+            if (-not $yt) { Fail 'yt-dlp is not installed.' }
             $pct=[int](20+(65*($num-1)/[Math]::Max(1,$ytEntries.Count)))
-            State ('در حال دریافت ویدیو '+$num+' از '+$ytEntries.Count+'...') $pct
+            State ('Downloading video '+$num+' of '+$ytEntries.Count+'...') $pct
             $videoUrl=[string]$item.url
-            $args=@('--cookies-from-browser',([string]$job.browser),'--no-playlist','--newline','--no-warnings','--windows-filenames','-P',$target,'-o','%(title).160B [%(id)s].%(ext)s')
+            $args=@('--force-ipv4','--no-playlist','--newline','--no-warnings','--socket-timeout','15','--retries','2','--extractor-retries','1','--windows-filenames','-P',$target,'-o','%(title).160B [%(id)s].%(ext)s')
             if ($audioOnly) {
                 $args+=@('-f','ba/b','-x','--audio-format',$audioType,'--audio-quality','0')
             } else {
@@ -421,31 +449,40 @@ try {
             }
             $args+=@('--',$videoUrl)
             $success=$false
+
+            # Public downloads are attempted without browser cookies first.
             if([bool]$job.accel) {
                 $aria=Tool 'aria2c.exe'
                 if ($aria) {
-                    State ('در حال تلاش با موتور چنداتصالی: '+$num+'/'+$ytEntries.Count) $pct
-                    # yt-dlp still handles cookies, format selection, metadata, and FFmpeg merging.
-                    # Limited parallelism reduces pressure on site endpoints.
+                    State ('Trying the multi-connection downloader: '+$num+'/'+$ytEntries.Count) $pct
                     $acceleratedArgs=@('--downloader',$aria,'--downloader-args','aria2c:-x 4 -s 4 -k 2M') + $args
                     & $yt @acceleratedArgs 2>&1 | Out-File -FilePath $log -Encoding UTF8 -Append
                     $success=($LASTEXITCODE -eq 0)
                     if(-not $success) {
-                        'aria2c failed; retrying with native yt-dlp downloader.' | Out-File -LiteralPath $log -Encoding UTF8 -Append
-                        State 'موتور سریع پاسخ نداد؛ در حال تلاش با روش داخلی...' $pct
+                        'aria2c failed; retrying with native yt-dlp downloader without browser cookies.' | Out-File -LiteralPath $log -Encoding UTF8 -Append
+                        State 'The accelerated downloader failed. Retrying with the native downloader...' $pct
                     }
                 } else {
-                    'aria2c missing; using yt-dlp native downloader.' | Out-File -LiteralPath $log -Encoding UTF8 -Append
-                    State 'aria2 نصب نیست؛ استفاده از روش داخلی...' $pct
+                    'aria2c missing; using yt-dlp native downloader without browser cookies.' | Out-File -LiteralPath $log -Encoding UTF8 -Append
+                    State 'aria2c is not installed. Using the native downloader...' $pct
                 }
             }
+
             if (-not $success) {
-                # Automatic fallback preserves the working download path and 4K/audio format choice.
                 & $yt @args 2>&1 | Out-File -FilePath $log -Encoding UTF8 -Append
                 $success=($LASTEXITCODE -eq 0)
             }
+
+            # Only restricted content gets a final browser-cookie retry.
+            if(-not $success -and [string]$job.browser -in @('firefox','chrome','edge')) {
+                ('Public download failed; retrying with '+[string]$job.browser+' browser cookies.') | Out-File -LiteralPath $log -Encoding UTF8 -Append
+                State ('Public download failed. Retrying with '+[string]$job.browser+' cookies...') $pct
+                $cookieArgs=@('--cookies-from-browser',([string]$job.browser)) + $args
+                & $yt @cookieArgs 2>&1 | Out-File -FilePath $log -Encoding UTF8 -Append
+                $success=($LASTEXITCODE -eq 0)
+            }
             if ($success) { $okCount++ }
-            else { [void]$failures.Add('خطا در مورد '+$num+': '+$item.title) }
+            else { [void]$failures.Add('Error on item '+$num+': '+$item.title) }
         }
         if ($okCount -gt 0 -and $imageFormat -ne 'original') {
             # Keep the originals and create new converted copies only for this download.
@@ -462,22 +499,22 @@ try {
                     $a+=@($destImage)
                     & $ff @a 2>&1 | Out-File -FilePath $log -Encoding UTF8 -Append
                     if ($LASTEXITCODE -ne 0) {
-                        [void]$failures.Add('تبدیل '+$f.Name+' ناموفق بود.')
+                        [void]$failures.Add('Conversion of '+$f.Name+' failed.')
                         if(Test-Path -LiteralPath $destImage){Remove-Item -LiteralPath $destImage -Force -ErrorAction SilentlyContinue}
                     }
                 }
-            } else { [void]$failures.Add('FFmpeg برای تبدیل عکس نصب نشده است.') }
+            } else { [void]$failures.Add('FFmpeg is not installed for image conversion.') }
         }
         if ($okCount -gt 0) {
-            State 'پایان دانلود' 100
-            $msg='دانلود '+$okCount+' مورد کامل شد.'
-            if ($failures.Count -gt 0) { $msg+=' بعضی موارد ناموفق بودند: '+($failures -join ' | ') }
+            State 'Download complete' 100
+            $msg='Downloaded '+$okCount+' items successfully.'
+            if ($failures.Count -gt 0) { $msg+=' Some items failed: '+($failures -join ' | ') }
             Result @{ok=($failures.Count -eq 0); partial=$true; count=$okCount; items=@(); message=$msg }
             exit 0
         }
-        Fail (ReadLastError ('دانلود ناموفق بود. '+($failures -join ' | ')))
+        Fail (ReadLastError ('Download failed. '+($failures -join ' | ')))
     }
-    Fail 'نوع عملیات نامعتبر است.'
+    Fail 'Invalid operation type.'
 } catch {
-    Fail ('خطای برنامه: '+$_.Exception.Message)
+    Fail ('Application error: '+$_.Exception.Message)
 }
